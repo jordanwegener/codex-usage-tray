@@ -17,7 +17,7 @@ namespace CodexUsageTray
         private readonly PopupForm _popup;
         private readonly ToolStripMenuItem _statusItem;
         private readonly System.Threading.Timer _timer;
-        private readonly Icon _icon;
+        private Icon _icon;
 
         private AppSettings _settings;
         private UsageState _state;
@@ -44,7 +44,10 @@ namespace CodexUsageTray
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Quit", null, delegate { ExitThread(); });
 
-            _icon = CreateIcon();
+            _icon = CreateIcon(
+                "C",
+                ColorTranslator.FromHtml(_settings.BackgroundColor),
+                ColorTranslator.FromHtml(_settings.TextColor));
             _tray = new NotifyIcon
             {
                 Icon = _icon,
@@ -164,12 +167,13 @@ namespace CodexUsageTray
             if (_exiting) return;
             _popup.UpdateState(_state);
             var parts = new System.Collections.Generic.List<string>();
-            if (_settings.ShowFiveHour) parts.Add(FormatMeter("5h", _state.FiveHour));
-            if (_settings.ShowWeekly) parts.Add(FormatMeter("7d", _state.Weekly));
+            if (_settings.ShowFiveHour && _state.FiveHour != null) parts.Add(FormatMeter("5h", _state.FiveHour));
+            if (_settings.ShowWeekly && _state.Weekly != null) parts.Add(FormatMeter("7d", _state.Weekly));
             var summary = String.Join("  •  ", parts.ToArray());
             _statusItem.Text = String.IsNullOrWhiteSpace(summary) ? "Usage unavailable" : summary;
             var tooltip = "Codex — " + (String.IsNullOrWhiteSpace(summary) ? "usage unavailable" : summary);
             _tray.Text = tooltip.Length <= 63 ? tooltip : tooltip.Substring(0, 63);
+            UpdateTrayIcon();
         }
 
         private void TogglePopup()
@@ -221,16 +225,52 @@ namespace CodexUsageTray
             return message.Trim();
         }
 
-        private static Icon CreateIcon()
+        private void UpdateTrayIcon()
+        {
+            UsageMeter selected = null;
+            if (_settings.ShowFiveHour && _state.FiveHour != null) selected = _state.FiveHour;
+            if (_settings.ShowWeekly && _state.Weekly != null &&
+                (selected == null || _state.Weekly.RemainingPercent < selected.RemainingPercent))
+            {
+                selected = _state.Weekly;
+            }
+
+            var text = _settings.ShowPercentageInTrayIcon && selected != null
+                ? Math.Round(selected.RemainingPercent).ToString("0")
+                : "C";
+            var next = CreateIcon(
+                text,
+                ColorTranslator.FromHtml(_settings.BackgroundColor),
+                ColorTranslator.FromHtml(_settings.TextColor));
+            var previous = _icon;
+            _icon = next;
+            _tray.Icon = next;
+            if (previous != null) previous.Dispose();
+        }
+
+        private static Icon CreateIcon(string text, Color background, Color foreground)
         {
             using (var bitmap = new Bitmap(32, 32))
             using (var graphics = Graphics.FromImage(bitmap))
-            using (var brush = new SolidBrush(Color.FromArgb(16, 185, 129)))
-            using (var pen = new Pen(brush, 5F))
+            using (var brush = new SolidBrush(background))
             {
                 graphics.Clear(Color.Transparent);
                 graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                graphics.DrawArc(pen, new Rectangle(4, 4, 23, 23), 45, 270);
+                graphics.FillEllipse(brush, new Rectangle(1, 1, 30, 30));
+                var fontSize = text.Length >= 3 ? 16F : (text.Length == 2 ? 19F : 22F);
+                using (var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
+                {
+                    TextRenderer.DrawText(
+                        graphics,
+                        text,
+                        font,
+                        new Rectangle(0, 0, 32, 31),
+                        foreground,
+                        TextFormatFlags.HorizontalCenter |
+                        TextFormatFlags.VerticalCenter |
+                        TextFormatFlags.NoPadding |
+                        TextFormatFlags.SingleLine);
+                }
                 var handle = bitmap.GetHicon();
                 try
                 {

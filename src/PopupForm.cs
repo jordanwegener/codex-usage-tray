@@ -17,11 +17,13 @@ namespace CodexUsageTray
         private readonly Panel _settingsPanel;
         private readonly Button _backgroundButton;
         private readonly Button _textButton;
+        private readonly CheckBox _showPercentage;
         private readonly CheckBox _showFiveHour;
         private readonly CheckBox _showWeekly;
         private readonly Label _updated;
 
         private AppSettings _settings;
+        private UsageState _state;
         private bool _layingOut;
 
         public event Action RefreshRequested;
@@ -77,20 +79,28 @@ namespace CodexUsageTray
 
             _settingsPanel = new Panel { Visible = false };
             Controls.Add(_settingsPanel);
-            var backgroundLabel = MakePanelLabel("Background", 12, 10, 110, 24);
-            var textLabel = MakePanelLabel("Text", 12, 38, 110, 24);
+            var backgroundLabel = MakePanelLabel("Tray background", 12, 10, 130, 24);
+            var textLabel = MakePanelLabel("Tray text", 12, 38, 130, 24);
             _backgroundButton = MakePanelButton("Choose…", 208, 8, 96, 25);
             _textButton = MakePanelButton("Choose…", 208, 36, 96, 25);
-            _showFiveHour = new CheckBox { Text = "Show 5-hour", AutoSize = true, Location = new Point(12, 72) };
-            _showWeekly = new CheckBox { Text = "Show 7-day", AutoSize = true, Location = new Point(166, 72) };
+            _showPercentage = new CheckBox
+            {
+                Text = "Show percentage in tray icon",
+                AutoSize = true,
+                Location = new Point(12, 70)
+            };
+            _showFiveHour = new CheckBox { Text = "Show 5-hour", AutoSize = true, Location = new Point(12, 97) };
+            _showWeekly = new CheckBox { Text = "Show 7-day", AutoSize = true, Location = new Point(166, 97) };
             _settingsPanel.Controls.Add(backgroundLabel);
             _settingsPanel.Controls.Add(textLabel);
             _settingsPanel.Controls.Add(_backgroundButton);
             _settingsPanel.Controls.Add(_textButton);
+            _settingsPanel.Controls.Add(_showPercentage);
             _settingsPanel.Controls.Add(_showFiveHour);
             _settingsPanel.Controls.Add(_showWeekly);
             _backgroundButton.Click += delegate { PickColor(true); };
             _textButton.Click += delegate { PickColor(false); };
+            _showPercentage.CheckedChanged += VisibilityChanged;
             _showFiveHour.CheckedChanged += VisibilityChanged;
             _showWeekly.CheckedChanged += VisibilityChanged;
 
@@ -120,8 +130,8 @@ namespace CodexUsageTray
         public void ApplySettings(AppSettings settings)
         {
             _settings = settings;
-            var background = ColorTranslator.FromHtml(settings.BackgroundColor);
-            var text = ColorTranslator.FromHtml(settings.TextColor);
+            var background = Color.FromArgb(17, 24, 39);
+            var text = Color.FromArgb(249, 250, 251);
             var surface = Blend(background, text, 0.08F);
             BackColor = background;
             ForeColor = text;
@@ -133,16 +143,26 @@ namespace CodexUsageTray
             _updated.ForeColor = Blend(background, text, 0.58F);
             _error.BackColor = Blend(background, Color.FromArgb(239, 68, 68), 0.16F);
             _error.ForeColor = Blend(background, Color.FromArgb(254, 202, 202), 0.90F);
+            _backgroundButton.Text = settings.BackgroundColor.ToUpperInvariant();
+            _backgroundButton.BackColor = ColorTranslator.FromHtml(settings.BackgroundColor);
+            _backgroundButton.ForeColor = ContrastColor(_backgroundButton.BackColor);
+            _textButton.Text = settings.TextColor.ToUpperInvariant();
+            _textButton.BackColor = ColorTranslator.FromHtml(settings.TextColor);
+            _textButton.ForeColor = ContrastColor(_textButton.BackColor);
+            var wasLayingOut = _layingOut;
+            _layingOut = true;
+            _showPercentage.Checked = settings.ShowPercentageInTrayIcon;
             _showFiveHour.Checked = settings.ShowFiveHour;
             _showWeekly.Checked = settings.ShowWeekly;
-            _fiveHour.Visible = settings.ShowFiveHour;
-            _weekly.Visible = settings.ShowWeekly;
+            _layingOut = wasLayingOut;
+            UpdateMeterAvailability();
             PerformCustomLayout();
             Invalidate(true);
         }
 
         public void UpdateState(UsageState state)
         {
+            _state = state;
             _account.Text = state.SignedIn
                 ? (String.IsNullOrWhiteSpace(state.AccountEmail) ? "Signed in with ChatGPT" : state.AccountEmail)
                 : "Not signed in";
@@ -157,6 +177,7 @@ namespace CodexUsageTray
             _updated.Text = state.UpdatedAt.HasValue
                 ? "Updated " + state.UpdatedAt.Value.ToString("t")
                 : "Not updated yet";
+            UpdateMeterAvailability();
             PerformCustomLayout();
         }
 
@@ -183,6 +204,7 @@ namespace CodexUsageTray
         private void PerformCustomLayout()
         {
             if (_layingOut) return;
+            var preserveBottom = Visible ? Bottom : 0;
             _layingOut = true;
             try
             {
@@ -208,12 +230,19 @@ namespace CodexUsageTray
                 y += 44;
                 if (_settingsPanel.Visible)
                 {
-                    _settingsPanel.Bounds = new Rectangle(20, y, 320, 106);
-                    y += 116;
+                    _settingsPanel.Bounds = new Rectangle(20, y, 320, 132);
+                    y += 142;
                 }
                 _updated.Bounds = new Rectangle(20, y, 320, 16);
                 y += 27;
                 ClientSize = new Size(360, y);
+                if (Visible)
+                {
+                    var workArea = Screen.FromControl(this).WorkingArea;
+                    var targetBottom = Math.Min(preserveBottom, workArea.Bottom - 10);
+                    Top = Math.Max(workArea.Top + 10, targetBottom - Height);
+                    Left = Math.Max(workArea.Left + 10, Math.Min(Left, workArea.Right - Width - 10));
+                }
             }
             finally
             {
@@ -234,7 +263,8 @@ namespace CodexUsageTray
                 BackgroundColor = _settings.BackgroundColor,
                 TextColor = _settings.TextColor,
                 ShowFiveHour = _showFiveHour.Checked,
-                ShowWeekly = _showWeekly.Checked
+                ShowWeekly = _showWeekly.Checked,
+                ShowPercentageInTrayIcon = _showPercentage.Checked
             };
             RaiseSettingsChanged(next);
         }
@@ -259,10 +289,24 @@ namespace CodexUsageTray
                     BackgroundColor = background ? ToHtml(dialog.Color) : _settings.BackgroundColor,
                     TextColor = background ? _settings.TextColor : ToHtml(dialog.Color),
                     ShowFiveHour = _settings.ShowFiveHour,
-                    ShowWeekly = _settings.ShowWeekly
+                    ShowWeekly = _settings.ShowWeekly,
+                    ShowPercentageInTrayIcon = _settings.ShowPercentageInTrayIcon
                 };
                 RaiseSettingsChanged(next);
             }
+        }
+
+        private void UpdateMeterAvailability()
+        {
+            var hasSnapshot = _state != null && _state.SignedIn && _state.UpdatedAt.HasValue;
+            var fiveHourAvailable = !hasSnapshot || _state.FiveHour != null;
+            var weeklyAvailable = !hasSnapshot || _state.Weekly != null;
+            _fiveHour.Visible = _settings.ShowFiveHour && fiveHourAvailable;
+            _weekly.Visible = _settings.ShowWeekly && weeklyAvailable;
+            _showFiveHour.Enabled = fiveHourAvailable;
+            _showWeekly.Enabled = weeklyAvailable;
+            _showFiveHour.Text = fiveHourAvailable ? "Show 5-hour" : "5-hour unavailable";
+            _showWeekly.Text = weeklyAvailable ? "Show 7-day" : "7-day unavailable";
         }
 
         private void RaiseSettingsChanged(AppSettings settings)
@@ -347,6 +391,12 @@ namespace CodexUsageTray
         private static string ToHtml(Color color)
         {
             return String.Format("#{0:X2}{1:X2}{2:X2}", color.R, color.G, color.B);
+        }
+
+        private static Color ContrastColor(Color color)
+        {
+            var luminance = (0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B);
+            return luminance > 150 ? Color.Black : Color.White;
         }
     }
 

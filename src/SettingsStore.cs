@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Web.Script.Serialization;
@@ -23,7 +24,12 @@ namespace CodexUsageTray
             try
             {
                 if (!File.Exists(_path)) return AppSettings.Defaults();
-                var parsed = _json.Deserialize<AppSettings>(File.ReadAllText(_path));
+                var raw = File.ReadAllText(_path);
+                var parsed = _json.Deserialize<AppSettings>(raw);
+                if (parsed == null) return AppSettings.Defaults();
+                var values = _json.DeserializeObject(raw) as Dictionary<string, object>;
+                if (values == null || !values.ContainsKey("ShowPercentageInTrayIcon"))
+                    parsed.ShowPercentageInTrayIcon = true;
                 return Sanitize(parsed);
             }
             catch

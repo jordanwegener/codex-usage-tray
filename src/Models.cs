@@ -8,6 +8,7 @@ namespace CodexUsageTray
         public string TextColor { get; set; }
         public bool ShowFiveHour { get; set; }
         public bool ShowWeekly { get; set; }
+        public bool ShowPercentageInTrayIcon { get; set; }
 
         public static AppSettings Defaults()
         {
@@ -16,7 +17,8 @@ namespace CodexUsageTray
                 BackgroundColor = "#111827",
                 TextColor = "#F9FAFB",
                 ShowFiveHour = true,
-                ShowWeekly = true
+                ShowWeekly = true,
+                ShowPercentageInTrayIcon = true
             };
         }
     }
