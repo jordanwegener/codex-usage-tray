@@ -18,6 +18,7 @@ namespace CodexUsageTray
         private readonly Button _backgroundButton;
         private readonly Button _textButton;
         private readonly CheckBox _showPercentage;
+        private readonly CheckBox _showReset;
         private readonly CheckBox _showFiveHour;
         private readonly CheckBox _showWeekly;
         private readonly Label _updated;
@@ -89,18 +90,26 @@ namespace CodexUsageTray
                 AutoSize = true,
                 Location = new Point(12, 70)
             };
-            _showFiveHour = new CheckBox { Text = "Show 5-hour", AutoSize = true, Location = new Point(12, 97) };
-            _showWeekly = new CheckBox { Text = "Show 7-day", AutoSize = true, Location = new Point(166, 97) };
+            _showReset = new CheckBox
+            {
+                Text = "Show reset countdown in tray icon",
+                AutoSize = true,
+                Location = new Point(12, 94)
+            };
+            _showFiveHour = new CheckBox { Text = "Show 5-hour", AutoSize = true, Location = new Point(12, 121) };
+            _showWeekly = new CheckBox { Text = "Show 7-day", AutoSize = true, Location = new Point(166, 121) };
             _settingsPanel.Controls.Add(backgroundLabel);
             _settingsPanel.Controls.Add(textLabel);
             _settingsPanel.Controls.Add(_backgroundButton);
             _settingsPanel.Controls.Add(_textButton);
             _settingsPanel.Controls.Add(_showPercentage);
+            _settingsPanel.Controls.Add(_showReset);
             _settingsPanel.Controls.Add(_showFiveHour);
             _settingsPanel.Controls.Add(_showWeekly);
             _backgroundButton.Click += delegate { PickColor(true); };
             _textButton.Click += delegate { PickColor(false); };
             _showPercentage.CheckedChanged += VisibilityChanged;
+            _showReset.CheckedChanged += VisibilityChanged;
             _showFiveHour.CheckedChanged += VisibilityChanged;
             _showWeekly.CheckedChanged += VisibilityChanged;
 
@@ -152,6 +161,7 @@ namespace CodexUsageTray
             var wasLayingOut = _layingOut;
             _layingOut = true;
             _showPercentage.Checked = settings.ShowPercentageInTrayIcon;
+            _showReset.Checked = settings.ShowResetInTrayIcon;
             _showFiveHour.Checked = settings.ShowFiveHour;
             _showWeekly.Checked = settings.ShowWeekly;
             _layingOut = wasLayingOut;
@@ -230,8 +240,8 @@ namespace CodexUsageTray
                 y += 44;
                 if (_settingsPanel.Visible)
                 {
-                    _settingsPanel.Bounds = new Rectangle(20, y, 320, 132);
-                    y += 142;
+                    _settingsPanel.Bounds = new Rectangle(20, y, 320, 158);
+                    y += 168;
                 }
                 _updated.Bounds = new Rectangle(20, y, 320, 16);
                 y += 27;
@@ -264,7 +274,8 @@ namespace CodexUsageTray
                 TextColor = _settings.TextColor,
                 ShowFiveHour = _showFiveHour.Checked,
                 ShowWeekly = _showWeekly.Checked,
-                ShowPercentageInTrayIcon = _showPercentage.Checked
+                ShowPercentageInTrayIcon = _showPercentage.Checked,
+                ShowResetInTrayIcon = _showReset.Checked
             };
             RaiseSettingsChanged(next);
         }
@@ -290,7 +301,8 @@ namespace CodexUsageTray
                     TextColor = background ? _settings.TextColor : ToHtml(dialog.Color),
                     ShowFiveHour = _settings.ShowFiveHour,
                     ShowWeekly = _settings.ShowWeekly,
-                    ShowPercentageInTrayIcon = _settings.ShowPercentageInTrayIcon
+                    ShowPercentageInTrayIcon = _settings.ShowPercentageInTrayIcon,
+                    ShowResetInTrayIcon = _settings.ShowResetInTrayIcon
                 };
                 RaiseSettingsChanged(next);
             }

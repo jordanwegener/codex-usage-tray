@@ -18,12 +18,14 @@ namespace CodexUsageTray
         private readonly ToolStripMenuItem _statusItem;
         private readonly System.Threading.Timer _refreshTimer;
         private readonly System.Threading.Timer _countdownTimer;
+        private readonly System.Threading.Timer _iconCycleTimer;
         private Icon _icon;
 
         private AppSettings _settings;
         private UsageState _state;
         private bool _refreshing;
         private bool _exiting;
+        private bool _showResetPhase;
 
         public UsageApplicationContext()
         {
@@ -71,6 +73,20 @@ namespace CodexUsageTray
                 null,
                 TimeSpan.FromMinutes(1),
                 TimeSpan.FromMinutes(1));
+            _iconCycleTimer = new System.Threading.Timer(
+                delegate
+                {
+                    _ui.Post(delegate
+                    {
+                        if (_exiting || !_settings.ShowPercentageInTrayIcon || !_settings.ShowResetInTrayIcon)
+                            return;
+                        _showResetPhase = !_showResetPhase;
+                        UpdateTrayIcon();
+                    }, null);
+                },
+                null,
+                TimeSpan.FromSeconds(3),
+                TimeSpan.FromSeconds(3));
             RefreshUsage();
         }
 
@@ -80,6 +96,7 @@ namespace CodexUsageTray
             _exiting = true;
             _refreshTimer.Dispose();
             _countdownTimer.Dispose();
+            _iconCycleTimer.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _popup.Dispose();
@@ -263,17 +280,30 @@ namespace CodexUsageTray
 
         private void UpdateTrayIcon()
         {
-            UsageMeter selected = null;
-            if (_settings.ShowFiveHour && _state.FiveHour != null) selected = _state.FiveHour;
+            if (_exiting) return;
+            UsageMeter percentageMeter = null;
+            if (_settings.ShowFiveHour && _state.FiveHour != null) percentageMeter = _state.FiveHour;
             if (_settings.ShowWeekly && _state.Weekly != null &&
-                (selected == null || _state.Weekly.RemainingPercent < selected.RemainingPercent))
+                (percentageMeter == null || _state.Weekly.RemainingPercent < percentageMeter.RemainingPercent))
             {
-                selected = _state.Weekly;
+                percentageMeter = _state.Weekly;
             }
 
-            var text = _settings.ShowPercentageInTrayIcon && selected != null
-                ? Math.Round(selected.RemainingPercent).ToString("0")
-                : "C";
+            UsageMeter resetMeter = null;
+            if (_settings.ShowWeekly && _state.Weekly != null && _state.Weekly.ResetsAt.HasValue)
+                resetMeter = _state.Weekly;
+            else if (_settings.ShowFiveHour && _state.FiveHour != null && _state.FiveHour.ResetsAt.HasValue)
+                resetMeter = _state.FiveHour;
+
+            var canShowPercentage = _settings.ShowPercentageInTrayIcon && percentageMeter != null;
+            var canShowReset = _settings.ShowResetInTrayIcon && resetMeter != null;
+            string text;
+            if (canShowReset && (!canShowPercentage || _showResetPhase))
+                text = FormatIconCountdown(resetMeter.ResetsAt.Value);
+            else if (canShowPercentage)
+                text = Math.Round(percentageMeter.RemainingPercent).ToString("0");
+            else
+                text = "C";
             var next = CreateIcon(
                 text,
                 ColorTranslator.FromHtml(_settings.BackgroundColor),
@@ -282,6 +312,18 @@ namespace CodexUsageTray
             _icon = next;
             _tray.Icon = next;
             if (previous != null) previous.Dispose();
+        }
+
+        private static string FormatIconCountdown(long resetTimestamp)
+        {
+            var remaining = DateTimeOffset.FromUnixTimeSeconds(resetTimestamp) - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) return "0h";
+            var days = (int)Math.Floor(remaining.TotalDays);
+            if (days > 0) return days + "d";
+            var hours = (int)Math.Floor(remaining.TotalHours);
+            if (hours > 0) return hours + "h";
+            var minutes = Math.Max(1, (int)Math.Floor(remaining.TotalMinutes));
+            return minutes + "m";
         }
 
         private static Icon CreateIcon(string text, Color background, Color foreground)
