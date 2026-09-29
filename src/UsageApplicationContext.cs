@@ -16,7 +16,8 @@ namespace CodexUsageTray
         private readonly NotifyIcon _tray;
         private readonly PopupForm _popup;
         private readonly ToolStripMenuItem _statusItem;
-        private readonly System.Threading.Timer _timer;
+        private readonly System.Threading.Timer _refreshTimer;
+        private readonly System.Threading.Timer _countdownTimer;
         private Icon _icon;
 
         private AppSettings _settings;
@@ -60,11 +61,16 @@ namespace CodexUsageTray
                 if (args.Button == MouseButtons.Left) TogglePopup();
             };
 
-            _timer = new System.Threading.Timer(
+            _refreshTimer = new System.Threading.Timer(
                 delegate { _ui.Post(delegate { RefreshUsage(); }, null); },
                 null,
                 TimeSpan.FromMinutes(5),
                 TimeSpan.FromMinutes(5));
+            _countdownTimer = new System.Threading.Timer(
+                delegate { _ui.Post(delegate { UpdateTrayTooltip(); }, null); },
+                null,
+                TimeSpan.FromMinutes(1),
+                TimeSpan.FromMinutes(1));
             RefreshUsage();
         }
 
@@ -72,7 +78,8 @@ namespace CodexUsageTray
         {
             if (_exiting) return;
             _exiting = true;
-            _timer.Dispose();
+            _refreshTimer.Dispose();
+            _countdownTimer.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _popup.Dispose();
@@ -171,9 +178,20 @@ namespace CodexUsageTray
             if (_settings.ShowWeekly && _state.Weekly != null) parts.Add(FormatMeter("7d", _state.Weekly));
             var summary = String.Join("  •  ", parts.ToArray());
             _statusItem.Text = String.IsNullOrWhiteSpace(summary) ? "Usage unavailable" : summary;
-            var tooltip = "Codex — " + (String.IsNullOrWhiteSpace(summary) ? "usage unavailable" : summary);
-            _tray.Text = tooltip.Length <= 63 ? tooltip : tooltip.Substring(0, 63);
+            UpdateTrayTooltip();
             UpdateTrayIcon();
+        }
+
+        private void UpdateTrayTooltip()
+        {
+            if (_exiting) return;
+            var lines = new System.Collections.Generic.List<string>();
+            if (_settings.ShowFiveHour && _state.FiveHour != null)
+                lines.Add(FormatTooltipMeter("5h", _state.FiveHour));
+            if (_settings.ShowWeekly && _state.Weekly != null)
+                lines.Add(FormatTooltipMeter("7d", _state.Weekly));
+            var tooltip = lines.Count == 0 ? "Codex usage unavailable" : String.Join("\n", lines.ToArray());
+            _tray.Text = tooltip.Length <= 63 ? tooltip : tooltip.Substring(0, 63);
         }
 
         private void TogglePopup()
@@ -204,6 +222,24 @@ namespace CodexUsageTray
         private static string FormatMeter(string name, UsageMeter meter)
         {
             return name + ": " + (meter == null ? "—" : Math.Round(meter.RemainingPercent) + "% left");
+        }
+
+        private static string FormatTooltipMeter(string name, UsageMeter meter)
+        {
+            var text = name + ": " + Math.Round(meter.RemainingPercent) + "%";
+            if (meter.ResetsAt.HasValue) text += " • reset in " + FormatCountdown(meter.ResetsAt.Value);
+            return text;
+        }
+
+        private static string FormatCountdown(long resetTimestamp)
+        {
+            var remaining = DateTimeOffset.FromUnixTimeSeconds(resetTimestamp) - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) return "now";
+            var days = (int)Math.Floor(remaining.TotalDays);
+            if (days > 0) return days + "d " + remaining.Hours + "h";
+            if (remaining.Hours > 0) return remaining.Hours + "h " + remaining.Minutes + "m";
+            if (remaining.Minutes > 0) return remaining.Minutes + "m";
+            return "<1m";
         }
 
         private static string HumanizeError(Exception exception)

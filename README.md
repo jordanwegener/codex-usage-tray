@@ -8,6 +8,7 @@ A lightweight Windows tray app that shows the remaining Codex/ChatGPT Work allow
 - Shows percentage remaining for the 5-hour and 7-day windows
 - Can show either meter or both
 - Shows the lowest visible remaining percentage directly in the tray icon
+- Shows a live days/hours-until-reset countdown when hovering over the tray icon
 - Custom tray-icon background and text colors, with an option to hide the number
 - Hides quota windows that are not supplied for the current account or plan
 - Refreshes automatically every five minutes
