@@ -10,6 +10,9 @@ namespace CodexUsageTray
         public bool ShowWeekly { get; set; }
         public bool ShowPercentageInTrayIcon { get; set; }
         public bool ShowResetInTrayIcon { get; set; }
+        public int IconCycleSeconds { get; set; }
+        public bool UseSeparateTrayIcons { get; set; }
+        public bool StartWithWindows { get; set; }
 
         public static AppSettings Defaults()
         {
@@ -20,7 +23,10 @@ namespace CodexUsageTray
                 ShowFiveHour = true,
                 ShowWeekly = true,
                 ShowPercentageInTrayIcon = true,
-                ShowResetInTrayIcon = false
+                ShowResetInTrayIcon = false,
+                IconCycleSeconds = 3,
+                UseSeparateTrayIcons = true,
+                StartWithWindows = false
             };
         }
     }

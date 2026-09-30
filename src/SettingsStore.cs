@@ -30,6 +30,8 @@ namespace CodexUsageTray
                 var values = _json.DeserializeObject(raw) as Dictionary<string, object>;
                 if (values == null || !values.ContainsKey("ShowPercentageInTrayIcon"))
                     parsed.ShowPercentageInTrayIcon = true;
+                if (values == null || !values.ContainsKey("UseSeparateTrayIcons"))
+                    parsed.UseSeparateTrayIcons = true;
                 return Sanitize(parsed);
             }
             catch
@@ -52,6 +54,8 @@ namespace CodexUsageTray
             if (value == null) return defaults;
             value.BackgroundColor = IsColor(value.BackgroundColor) ? value.BackgroundColor : defaults.BackgroundColor;
             value.TextColor = IsColor(value.TextColor) ? value.TextColor : defaults.TextColor;
+            if (value.IconCycleSeconds < 2 || value.IconCycleSeconds > 60)
+                value.IconCycleSeconds = defaults.IconCycleSeconds;
             if (!value.ShowFiveHour && !value.ShowWeekly) value.ShowFiveHour = true;
             return value;
         }

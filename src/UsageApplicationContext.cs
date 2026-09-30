@@ -14,12 +14,15 @@ namespace CodexUsageTray
         private readonly CodexAppServer _codex = new CodexAppServer();
         private readonly SynchronizationContext _ui;
         private readonly NotifyIcon _tray;
+        private NotifyIcon _secondaryTray;
         private readonly PopupForm _popup;
         private readonly ToolStripMenuItem _statusItem;
+        private readonly ContextMenuStrip _menu;
         private readonly System.Threading.Timer _refreshTimer;
         private readonly System.Threading.Timer _countdownTimer;
         private readonly System.Threading.Timer _iconCycleTimer;
         private Icon _icon;
+        private Icon _secondaryIcon;
 
         private AppSettings _settings;
         private UsageState _state;
@@ -32,20 +35,25 @@ namespace CodexUsageTray
             _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
             _settings = _settingsStore.Load();
             _state = new UsageState();
+            if (_settings.StartWithWindows)
+            {
+                try { StartupRegistration.SetEnabled(true); }
+                catch { }
+            }
             _popup = new PopupForm(_settings);
             _popup.RefreshRequested += RefreshUsage;
             _popup.LoginRequested += Login;
             _popup.SettingsChanged += SaveSettings;
 
             _statusItem = new ToolStripMenuItem("Usage unavailable") { Enabled = false };
-            var menu = new ContextMenuStrip();
-            menu.Items.Add(_statusItem);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Open", null, delegate { TogglePopup(); });
-            menu.Items.Add("Refresh", null, delegate { RefreshUsage(); });
-            menu.Items.Add("Sign in with ChatGPT", null, delegate { Login(); });
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Quit", null, delegate { ExitThread(); });
+            _menu = new ContextMenuStrip();
+            _menu.Items.Add(_statusItem);
+            _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add("Open", null, delegate { TogglePopup(); });
+            _menu.Items.Add("Refresh", null, delegate { RefreshUsage(); });
+            _menu.Items.Add("Sign in with ChatGPT", null, delegate { Login(); });
+            _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add("Quit", null, delegate { ExitThread(); });
 
             _icon = CreateIcon(
                 "C",
@@ -56,7 +64,7 @@ namespace CodexUsageTray
                 Icon = _icon,
                 Text = "Codex Usage — loading…",
                 Visible = true,
-                ContextMenuStrip = menu
+                ContextMenuStrip = _menu
             };
             _tray.MouseClick += delegate(object sender, MouseEventArgs args)
             {
@@ -81,12 +89,12 @@ namespace CodexUsageTray
                         if (_exiting || !_settings.ShowPercentageInTrayIcon || !_settings.ShowResetInTrayIcon)
                             return;
                         _showResetPhase = !_showResetPhase;
-                        UpdateTrayIcon();
+                        UpdateTrayIcons();
                     }, null);
                 },
                 null,
-                TimeSpan.FromSeconds(3),
-                TimeSpan.FromSeconds(3));
+                TimeSpan.FromSeconds(_settings.IconCycleSeconds),
+                TimeSpan.FromSeconds(_settings.IconCycleSeconds));
             RefreshUsage();
         }
 
@@ -99,6 +107,8 @@ namespace CodexUsageTray
             _iconCycleTimer.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
+            DisposeSecondaryTray();
+            _menu.Dispose();
             _popup.Dispose();
             _codex.Dispose();
             _icon.Dispose();
@@ -175,7 +185,12 @@ namespace CodexUsageTray
         {
             try
             {
+                StartupRegistration.SetEnabled(value.StartWithWindows);
                 _settings = _settingsStore.Save(value);
+                _showResetPhase = false;
+                _iconCycleTimer.Change(
+                    TimeSpan.FromSeconds(_settings.IconCycleSeconds),
+                    TimeSpan.FromSeconds(_settings.IconCycleSeconds));
                 _popup.ApplySettings(_settings);
                 UpdateUi();
             }
@@ -195,20 +210,32 @@ namespace CodexUsageTray
             if (_settings.ShowWeekly && _state.Weekly != null) parts.Add(FormatMeter("7d", _state.Weekly));
             var summary = String.Join("  •  ", parts.ToArray());
             _statusItem.Text = String.IsNullOrWhiteSpace(summary) ? "Usage unavailable" : summary;
+            UpdateTrayIcons();
             UpdateTrayTooltip();
-            UpdateTrayIcon();
         }
 
         private void UpdateTrayTooltip()
         {
             if (_exiting) return;
+            if (UseSeparateTrayIcons())
+            {
+                SetTooltip(_tray, FormatTooltipMeter("5h", _state.FiveHour));
+                if (_secondaryTray != null)
+                    SetTooltip(_secondaryTray, FormatTooltipMeter("7d", _state.Weekly));
+                return;
+            }
             var lines = new System.Collections.Generic.List<string>();
             if (_settings.ShowFiveHour && _state.FiveHour != null)
                 lines.Add(FormatTooltipMeter("5h", _state.FiveHour));
             if (_settings.ShowWeekly && _state.Weekly != null)
                 lines.Add(FormatTooltipMeter("7d", _state.Weekly));
             var tooltip = lines.Count == 0 ? "Codex usage unavailable" : String.Join("\n", lines.ToArray());
-            _tray.Text = tooltip.Length <= 63 ? tooltip : tooltip.Substring(0, 63);
+            SetTooltip(_tray, tooltip);
+        }
+
+        private static void SetTooltip(NotifyIcon tray, string text)
+        {
+            tray.Text = text.Length <= 63 ? text : text.Substring(0, 63);
         }
 
         private void TogglePopup()
@@ -278,9 +305,31 @@ namespace CodexUsageTray
             return message.Trim();
         }
 
-        private void UpdateTrayIcon()
+        private void UpdateTrayIcons()
         {
             if (_exiting) return;
+            var background = ColorTranslator.FromHtml(_settings.BackgroundColor);
+            var foreground = ColorTranslator.FromHtml(_settings.TextColor);
+
+            if (UseSeparateTrayIcons())
+            {
+                EnsureSecondaryTray();
+                ReplaceIcon(
+                    _tray,
+                    ref _icon,
+                    GetIconText(_state.FiveHour, _state.FiveHour),
+                    background,
+                    foreground);
+                ReplaceIcon(
+                    _secondaryTray,
+                    ref _secondaryIcon,
+                    GetIconText(_state.Weekly, _state.Weekly),
+                    background,
+                    foreground);
+                return;
+            }
+
+            DisposeSecondaryTray();
             UsageMeter percentageMeter = null;
             if (_settings.ShowFiveHour && _state.FiveHour != null) percentageMeter = _state.FiveHour;
             if (_settings.ShowWeekly && _state.Weekly != null &&
@@ -294,23 +343,79 @@ namespace CodexUsageTray
                 resetMeter = _state.Weekly;
             else if (_settings.ShowFiveHour && _state.FiveHour != null && _state.FiveHour.ResetsAt.HasValue)
                 resetMeter = _state.FiveHour;
+            ReplaceIcon(
+                _tray,
+                ref _icon,
+                GetIconText(percentageMeter, resetMeter),
+                background,
+                foreground);
+        }
 
+        private bool UseSeparateTrayIcons()
+        {
+            return _settings.UseSeparateTrayIcons &&
+                _settings.ShowFiveHour &&
+                _settings.ShowWeekly &&
+                _state.FiveHour != null &&
+                _state.Weekly != null;
+        }
+
+        private string GetIconText(UsageMeter percentageMeter, UsageMeter resetMeter)
+        {
             var canShowPercentage = _settings.ShowPercentageInTrayIcon && percentageMeter != null;
-            var canShowReset = _settings.ShowResetInTrayIcon && resetMeter != null;
-            string text;
+            var canShowReset = _settings.ShowResetInTrayIcon && resetMeter != null && resetMeter.ResetsAt.HasValue;
             if (canShowReset && (!canShowPercentage || _showResetPhase))
-                text = FormatIconCountdown(resetMeter.ResetsAt.Value);
-            else if (canShowPercentage)
-                text = Math.Round(percentageMeter.RemainingPercent).ToString("0");
-            else
-                text = "C";
-            var next = CreateIcon(
-                text,
+                return FormatIconCountdown(resetMeter.ResetsAt.Value);
+            if (canShowPercentage) return Math.Round(percentageMeter.RemainingPercent).ToString("0");
+            return "C";
+        }
+
+        private void EnsureSecondaryTray()
+        {
+            if (_secondaryTray != null) return;
+            _secondaryIcon = CreateIcon(
+                "C",
                 ColorTranslator.FromHtml(_settings.BackgroundColor),
                 ColorTranslator.FromHtml(_settings.TextColor));
-            var previous = _icon;
-            _icon = next;
-            _tray.Icon = next;
+            _secondaryTray = new NotifyIcon
+            {
+                Icon = _secondaryIcon,
+                Text = "Codex 7-day usage",
+                ContextMenuStrip = _menu,
+                Visible = true
+            };
+            _secondaryTray.MouseClick += delegate(object sender, MouseEventArgs args)
+            {
+                if (args.Button == MouseButtons.Left) TogglePopup();
+            };
+        }
+
+        private void DisposeSecondaryTray()
+        {
+            if (_secondaryTray != null)
+            {
+                _secondaryTray.Visible = false;
+                _secondaryTray.Dispose();
+                _secondaryTray = null;
+            }
+            if (_secondaryIcon != null)
+            {
+                _secondaryIcon.Dispose();
+                _secondaryIcon = null;
+            }
+        }
+
+        private static void ReplaceIcon(
+            NotifyIcon tray,
+            ref Icon current,
+            string text,
+            Color background,
+            Color foreground)
+        {
+            var next = CreateIcon(text, background, foreground);
+            var previous = current;
+            current = next;
+            tray.Icon = next;
             if (previous != null) previous.Dispose();
         }
 
