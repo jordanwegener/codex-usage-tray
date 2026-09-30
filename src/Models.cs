@@ -35,6 +35,7 @@ namespace CodexUsageTray
     {
         public double UsedPercent { get; set; }
         public double RemainingPercent { get; set; }
+        public double DurationMinutes { get; set; }
         public long? ResetsAt { get; set; }
     }
 

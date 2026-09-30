@@ -10,6 +10,7 @@ namespace CodexUsageTray
         private readonly Label _account;
         private readonly MeterControl _fiveHour;
         private readonly MeterControl _weekly;
+        private readonly MeterControl _resetCountdown;
         private readonly Label _error;
         private readonly Button _refresh;
         private readonly Button _login;
@@ -55,8 +56,15 @@ namespace CodexUsageTray
             _account = MakeLabel("Checking sign-in…", 20, 63, 320, 18, FontStyle.Regular, 8F);
             _fiveHour = new MeterControl { MeterName = "5-hour limit" };
             _weekly = new MeterControl { MeterName = "7-day limit" };
+            _resetCountdown = new MeterControl
+            {
+                MeterName = "Next reset",
+                CountdownMode = true,
+                Visible = false
+            };
             Controls.Add(_fiveHour);
             Controls.Add(_weekly);
+            Controls.Add(_resetCountdown);
 
             _error = MakeLabel("", 20, 0, 320, 44, FontStyle.Regular, 8F);
             _error.Padding = new Padding(9, 6, 9, 6);
@@ -181,6 +189,7 @@ namespace CodexUsageTray
             _settingsPanel.BackColor = surface;
             _fiveHour.SetTheme(background, text);
             _weekly.SetTheme(background, text);
+            _resetCountdown.SetTheme(background, text);
             _account.ForeColor = Blend(background, text, 0.66F);
             _updated.ForeColor = Blend(background, text, 0.58F);
             _error.BackColor = Blend(background, Color.FromArgb(239, 68, 68), 0.16F);
@@ -228,6 +237,11 @@ namespace CodexUsageTray
             PerformCustomLayout();
         }
 
+        public void RefreshCountdown()
+        {
+            _resetCountdown.Invalidate();
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs eventArgs)
         {
             if (eventArgs.CloseReason == CloseReason.UserClosing)
@@ -265,6 +279,11 @@ namespace CodexUsageTray
                 {
                     _weekly.Bounds = new Rectangle(20, y, 320, 88);
                     y += 98;
+                }
+                if (_resetCountdown.Visible)
+                {
+                    _resetCountdown.Bounds = new Rectangle(20, y, 320, 68);
+                    y += 78;
                 }
                 if (_error.Visible)
                 {
@@ -357,12 +376,48 @@ namespace CodexUsageTray
             var hasSnapshot = _state != null && _state.SignedIn && _state.UpdatedAt.HasValue;
             var fiveHourAvailable = !hasSnapshot || _state.FiveHour != null;
             var weeklyAvailable = !hasSnapshot || _state.Weekly != null;
-            _fiveHour.Visible = _settings.ShowFiveHour && fiveHourAvailable;
-            _weekly.Visible = _settings.ShowWeekly && weeklyAvailable;
+            var showFiveHour = _settings.ShowFiveHour && fiveHourAvailable;
+            var showWeekly = _settings.ShowWeekly && weeklyAvailable;
+            _fiveHour.Visible = showFiveHour;
+            _weekly.Visible = showWeekly;
+            UsageMeter nextReset = null;
+            string nextResetName = "Next reset";
+            if (showFiveHour && HasResetDuration(_fiveHour.Meter))
+            {
+                nextReset = _fiveHour.Meter;
+                nextResetName = "Next reset · 5-hour limit";
+            }
+            if (showWeekly && HasResetDuration(_weekly.Meter) &&
+                IsSoonerReset(nextReset, _weekly.Meter))
+            {
+                nextReset = _weekly.Meter;
+                nextResetName = "Next reset · 7-day limit";
+            }
+            _resetCountdown.MeterName = nextResetName;
+            _resetCountdown.Meter = nextReset;
+            _resetCountdown.Visible = nextReset != null;
             _showFiveHour.Enabled = fiveHourAvailable;
             _showWeekly.Enabled = weeklyAvailable;
             _showFiveHour.Text = fiveHourAvailable ? "Show 5-hour" : "5-hour unavailable";
             _showWeekly.Text = weeklyAvailable ? "Show 7-day" : "7-day unavailable";
+        }
+
+        private static bool HasResetDuration(UsageMeter meter)
+        {
+            return meter != null && meter.ResetsAt.HasValue && meter.DurationMinutes > 0;
+        }
+
+        private static bool IsSoonerReset(UsageMeter current, UsageMeter candidate)
+        {
+            if (current == null) return true;
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var currentSeconds = current.ResetsAt.Value - now;
+            var candidateSeconds = candidate.ResetsAt.Value - now;
+            if (candidateSeconds > 0 && currentSeconds <= 0) return true;
+            if (candidateSeconds <= 0 && currentSeconds > 0) return false;
+            return candidateSeconds > 0
+                ? candidateSeconds < currentSeconds
+                : candidateSeconds > currentSeconds;
         }
 
         private void RaiseSettingsChanged(AppSettings settings)
@@ -469,6 +524,7 @@ namespace CodexUsageTray
         }
 
         public string MeterName { get; set; }
+        public bool CountdownMode { get; set; }
 
         public UsageMeter Meter
         {
@@ -498,22 +554,25 @@ namespace CodexUsageTray
 
             var muted = PopupForm.Blend(_background, _text, 0.64F);
             using (var nameFont = new Font("Segoe UI", 8.5F, FontStyle.Bold))
-            using (var valueFont = new Font("Segoe UI", 16F, FontStyle.Bold))
+            using (var valueFont = new Font("Segoe UI", CountdownMode ? 14F : 16F, FontStyle.Bold))
             using (var smallFont = new Font("Segoe UI", 7.5F, FontStyle.Regular))
             using (var nameBrush = new SolidBrush(muted))
             using (var textBrush = new SolidBrush(_text))
             {
                 graphics.DrawString(MeterName ?? "Usage", nameFont, nameBrush, 13, 10);
-                var valueText = _meter == null ? "—" : Math.Round(_meter.RemainingPercent) + "% left";
+                var valueText = _meter == null
+                    ? "—"
+                    : CountdownMode ? FormatCountdown(_meter) : Math.Round(_meter.RemainingPercent) + "% left";
                 var valueSize = graphics.MeasureString(valueText, valueFont);
                 graphics.DrawString(valueText, valueFont, textBrush, Width - valueSize.Width - 12, 5);
 
-                var track = new Rectangle(13, 40, Width - 26, 7);
+                var track = new Rectangle(13, CountdownMode ? 34 : 40, Width - 26, 7);
                 using (var trackBrush = new SolidBrush(PopupForm.Blend(_background, _text, 0.14F)))
                     graphics.FillRoundedRectangle(trackBrush, track, 4);
                 if (_meter != null)
                 {
-                    var width = Math.Max(0, Math.Min(track.Width, (int)(track.Width * _meter.RemainingPercent / 100.0)));
+                    var fillPercent = CountdownMode ? GetTimeRemainingPercent(_meter) : _meter.RemainingPercent;
+                    var width = Math.Max(0, Math.Min(track.Width, (int)(track.Width * fillPercent / 100.0)));
                     if (width > 0)
                     {
                         using (var accent = new SolidBrush(Color.FromArgb(16, 185, 129)))
@@ -529,8 +588,27 @@ namespace CodexUsageTray
                     resetText = "Resets " + reset.ToString("ddd h:mm tt");
                 }
                 else resetText = Math.Round(_meter.UsedPercent) + "% used";
-                graphics.DrawString(resetText, smallFont, nameBrush, 13, 57);
+                graphics.DrawString(resetText, smallFont, nameBrush, 13, CountdownMode ? 48 : 57);
             }
+        }
+
+        private static double GetTimeRemainingPercent(UsageMeter meter)
+        {
+            if (meter == null || !meter.ResetsAt.HasValue || meter.DurationMinutes <= 0) return 0;
+            var remaining = DateTimeOffset.FromUnixTimeSeconds(meter.ResetsAt.Value) - DateTimeOffset.UtcNow;
+            return Math.Max(0, Math.Min(100, remaining.TotalMinutes / meter.DurationMinutes * 100.0));
+        }
+
+        private static string FormatCountdown(UsageMeter meter)
+        {
+            if (meter == null || !meter.ResetsAt.HasValue) return "—";
+            var remaining = DateTimeOffset.FromUnixTimeSeconds(meter.ResetsAt.Value) - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) return "Resetting now";
+            var days = (int)Math.Floor(remaining.TotalDays);
+            if (days > 0) return days + "d " + remaining.Hours + "h";
+            if (remaining.Hours > 0) return remaining.Hours + "h " + remaining.Minutes + "m";
+            if (remaining.Minutes > 0) return remaining.Minutes + "m";
+            return "<1m";
         }
 
         private static GraphicsPath RoundedRectangle(Rectangle rectangle, int radius)

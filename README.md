@@ -5,6 +5,7 @@ A lightweight, native Windows app that puts your remaining ChatGPT/Codex usage i
 ## Features
 
 - Shows 5-hour and 7-day limits when they are available on your account.
+- Adds a separate bar for time remaining until the next limit reset.
 - Displays remaining usage and reset countdowns in the tray icon and hover tooltip.
 - Choose one or both limits, separate icons, and how often the icon alternates between usage and reset time.
 - Customize tray icon colors and optionally start with Windows.

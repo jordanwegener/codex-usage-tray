@@ -77,7 +77,14 @@ namespace CodexUsageTray
                 TimeSpan.FromMinutes(5),
                 TimeSpan.FromMinutes(5));
             _countdownTimer = new System.Threading.Timer(
-                delegate { _ui.Post(delegate { UpdateTrayTooltip(); }, null); },
+                delegate
+                {
+                    _ui.Post(delegate
+                    {
+                        UpdateTrayTooltip();
+                        _popup.RefreshCountdown();
+                    }, null);
+                },
                 null,
                 TimeSpan.FromMinutes(1),
                 TimeSpan.FromMinutes(1));
@@ -259,6 +266,7 @@ namespace CodexUsageTray
             {
                 UsedPercent = used,
                 RemainingPercent = 100 - used,
+                DurationMinutes = window.DurationMinutes,
                 ResetsAt = window.ResetsAt
             };
         }
