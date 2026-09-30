@@ -1,48 +1,32 @@
 # Codex Usage Tray
 
-A lightweight Windows tray app that shows the remaining Codex/ChatGPT Work allowance in the current 5-hour and weekly windows.
+A lightweight, native Windows app that puts your remaining ChatGPT/Codex usage in the system tray.
 
 ## Features
 
-- Signs in through the official Codex browser login
-- Shows percentage remaining for the 5-hour and 7-day windows
-- Can show either meter or both
-- Shows the lowest visible remaining percentage directly in the tray icon
-- Shows a live days/hours-until-reset countdown when hovering over the tray icon
-- Can show the reset countdown in the icon itself, alternating with the percentage when both are enabled
-- Adjustable 2–60 second interval for alternating between percentage and reset countdown
-- Optional separate tray icons when both 5-hour and 7-day limits are available
-- Optional start with Windows for the current user
-- Custom tray-icon background and text colors, with an option to hide the number
-- Hides quota windows that are not supplied for the current account or plan
-- Refreshes automatically every five minutes
-- No Electron, Node.js runtime, webview, or external libraries
-- Does not read or store ChatGPT passwords, tokens, or browser cookies
+- Shows 5-hour and 7-day limits when they are available on your account.
+- Displays remaining usage and reset countdowns in the tray icon and hover tooltip.
+- Choose one or both limits, separate icons, and how often the icon alternates between usage and reset time.
+- Customize tray icon colors and optionally start with Windows.
+- Sign in through ChatGPT in your browser.
 
-> [!IMPORTANT]
-> The usage data comes from the experimental local `codex app-server` protocol. OpenAI may change that protocol in future Codex CLI versions.
+## Get started
 
-## Requirements
+1. Download `CodexUsageTray.exe` from the [latest release](https://github.com/jordanwegener/codex-usage-tray/releases/latest).
+2. Run it and use the tray menu to sign in, refresh usage, or open settings.
 
-- Windows 10 or 11
-- [.NET Framework 4.8](https://dotnet.microsoft.com/en-us/download/dotnet-framework/net48) (included with current Windows 10/11 installations)
-- Codex CLI 0.137 or newer on `PATH`
+Requires Windows 10 or 11, .NET Framework 4.8, and the Codex CLI (`codex`) on your `PATH`. Some account plans do not have a 5-hour limit; the app only shows limits returned for your account.
 
-## Build
+## Build from source
 
-No SDK or package restore is needed. From PowerShell:
+In PowerShell, run:
 
 ```powershell
 .\build.ps1
 ```
 
-The framework-dependent app is written to `dist\CodexUsageTray.exe`.
+The executable is written to `dist\CodexUsageTray.exe`. No SDK or package restore is required.
 
-## Run
+The app reads usage through the Codex CLI's local `app-server` protocol, which is experimental and may change. Sign-in uses the Codex browser flow; the app does not ask for your ChatGPT password.
 
-```powershell
-.\dist\CodexUsageTray.exe
-```
-
-Left-click the tray icon to open the meters. Right-click it to refresh, sign in, or quit.
-
+Licensed under the [MIT License](LICENSE).
