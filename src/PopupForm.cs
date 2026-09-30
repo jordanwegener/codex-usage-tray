@@ -16,8 +16,10 @@ namespace CodexUsageTray
         private readonly Button _login;
         private readonly Button _settingsButton;
         private readonly Panel _settingsPanel;
+        private readonly ComboBox _iconStyle;
         private readonly Button _backgroundButton;
         private readonly Button _textButton;
+        private readonly CheckBox _paceColor;
         private readonly CheckBox _showPercentage;
         private readonly CheckBox _showReset;
         private readonly NumericUpDown _switchSeconds;
@@ -89,52 +91,75 @@ namespace CodexUsageTray
                 PerformCustomLayout();
             };
 
-            _settingsPanel = new Panel { Visible = false };
+            _settingsPanel = new Panel
+            {
+                Visible = false,
+                AutoScroll = true,
+                AutoScrollMinSize = new Size(0, 286)
+            };
             Controls.Add(_settingsPanel);
-            var backgroundLabel = MakePanelLabel("Tray background", 12, 10, 130, 24);
-            var textLabel = MakePanelLabel("Tray text", 12, 38, 130, 24);
-            _backgroundButton = MakePanelButton("Choose…", 208, 8, 96, 25);
-            _textButton = MakePanelButton("Choose…", 208, 36, 96, 25);
+            var iconStyleLabel = MakePanelLabel("Tray style", 12, 10, 130, 24);
+            _iconStyle = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                FlatStyle = FlatStyle.Flat,
+                Location = new Point(150, 8),
+                Size = new Size(138, 25)
+            };
+            _iconStyle.Items.AddRange(new object[] { "Number circle", "Quota bar" });
+            var backgroundLabel = MakePanelLabel("Tray background", 12, 40, 130, 24);
+            var textLabel = MakePanelLabel("Tray text", 12, 70, 130, 24);
+            _backgroundButton = MakePanelButton("Choose…", 196, 38, 92, 25);
+            _textButton = MakePanelButton("Choose…", 196, 68, 92, 25);
+            _paceColor = new CheckBox
+            {
+                Text = "Color circle by usage pace",
+                AutoSize = true,
+                Location = new Point(12, 100)
+            };
             _showPercentage = new CheckBox
             {
                 Text = "Show percentage in tray icon",
                 AutoSize = true,
-                Location = new Point(12, 70)
+                Location = new Point(12, 124)
             };
             _showReset = new CheckBox
             {
                 Text = "Show reset countdown in tray icon",
                 AutoSize = true,
-                Location = new Point(12, 94)
+                Location = new Point(12, 148)
             };
-            var switchLabel = MakePanelLabel("Switch usage/reset every", 12, 119, 190, 24);
+            var switchLabel = MakePanelLabel("Switch usage/reset every", 12, 175, 185, 24);
             _switchSeconds = new NumericUpDown
             {
                 Minimum = 2,
                 Maximum = 60,
-                Location = new Point(208, 117),
-                Size = new Size(60, 25),
+                Location = new Point(205, 173),
+                Size = new Size(52, 25),
                 TextAlign = HorizontalAlignment.Center
             };
-            var secondsLabel = MakePanelLabel("sec", 273, 119, 35, 24);
+            var secondsLabel = MakePanelLabel("sec", 265, 175, 28, 24);
             _separateIcons = new CheckBox
             {
                 Text = "Separate icons for 5-hour and 7-day",
                 AutoSize = true,
-                Location = new Point(12, 148)
+                Location = new Point(12, 204)
             };
             _startWithWindows = new CheckBox
             {
                 Text = "Start with Windows",
                 AutoSize = true,
-                Location = new Point(12, 173)
+                Location = new Point(12, 229)
             };
-            _showFiveHour = new CheckBox { Text = "Show 5-hour", AutoSize = true, Location = new Point(12, 201) };
-            _showWeekly = new CheckBox { Text = "Show 7-day", AutoSize = true, Location = new Point(166, 201) };
+            _showFiveHour = new CheckBox { Text = "Show 5-hour", AutoSize = true, Location = new Point(12, 257) };
+            _showWeekly = new CheckBox { Text = "Show 7-day", AutoSize = true, Location = new Point(166, 257) };
+            _settingsPanel.Controls.Add(iconStyleLabel);
+            _settingsPanel.Controls.Add(_iconStyle);
             _settingsPanel.Controls.Add(backgroundLabel);
             _settingsPanel.Controls.Add(textLabel);
             _settingsPanel.Controls.Add(_backgroundButton);
             _settingsPanel.Controls.Add(_textButton);
+            _settingsPanel.Controls.Add(_paceColor);
             _settingsPanel.Controls.Add(_showPercentage);
             _settingsPanel.Controls.Add(_showReset);
             _settingsPanel.Controls.Add(switchLabel);
@@ -146,6 +171,8 @@ namespace CodexUsageTray
             _settingsPanel.Controls.Add(_showWeekly);
             _backgroundButton.Click += delegate { PickColor(true); };
             _textButton.Click += delegate { PickColor(false); };
+            _iconStyle.SelectedIndexChanged += VisibilityChanged;
+            _paceColor.CheckedChanged += VisibilityChanged;
             _showPercentage.CheckedChanged += VisibilityChanged;
             _showReset.CheckedChanged += VisibilityChanged;
             _switchSeconds.ValueChanged += VisibilityChanged;
@@ -169,6 +196,7 @@ namespace CodexUsageTray
 
             ApplySettings(settings);
             PerformCustomLayout();
+            VisibleChanged += delegate { if (Visible) PerformCustomLayout(); };
             Deactivate += delegate
             {
                 if (!ContainsFocus && !ColorDialogOpen) Hide();
@@ -202,6 +230,8 @@ namespace CodexUsageTray
             _textButton.ForeColor = ContrastColor(_textButton.BackColor);
             var wasLayingOut = _layingOut;
             _layingOut = true;
+            _iconStyle.SelectedIndex = settings.TrayIconStyle == AppSettings.BarIconStyle ? 1 : 0;
+            _paceColor.Checked = settings.ColorByPace;
             _showPercentage.Checked = settings.ShowPercentageInTrayIcon;
             _showReset.Checked = settings.ShowResetInTrayIcon;
             _switchSeconds.Value = settings.IconCycleSeconds;
@@ -210,7 +240,7 @@ namespace CodexUsageTray
             _showFiveHour.Checked = settings.ShowFiveHour;
             _showWeekly.Checked = settings.ShowWeekly;
             _layingOut = wasLayingOut;
-            _switchSeconds.Enabled = settings.ShowPercentageInTrayIcon && settings.ShowResetInTrayIcon;
+            UpdateAppearanceControls();
             UpdateMeterAvailability();
             PerformCustomLayout();
             Invalidate(true);
@@ -296,8 +326,10 @@ namespace CodexUsageTray
                 y += 44;
                 if (_settingsPanel.Visible)
                 {
-                    _settingsPanel.Bounds = new Rectangle(20, y, 320, 230);
-                    y += 240;
+                    var availableHeight = Screen.FromControl(this).WorkingArea.Height - 20;
+                    var panelHeight = Math.Max(100, Math.Min(230, availableHeight - y - 37));
+                    _settingsPanel.Bounds = new Rectangle(20, y, 320, panelHeight);
+                    y += panelHeight + 10;
                 }
                 _updated.Bounds = new Rectangle(20, y, 320, 16);
                 y += 27;
@@ -324,11 +356,13 @@ namespace CodexUsageTray
                 if (ReferenceEquals(sender, _showFiveHour)) _showWeekly.Checked = true;
                 else _showFiveHour.Checked = true;
             }
-            _switchSeconds.Enabled = _showPercentage.Checked && _showReset.Checked;
+            UpdateAppearanceControls();
             var next = new AppSettings
             {
                 BackgroundColor = _settings.BackgroundColor,
                 TextColor = _settings.TextColor,
+                TrayIconStyle = _iconStyle.SelectedIndex == 1 ? AppSettings.BarIconStyle : AppSettings.StandardIconStyle,
+                ColorByPace = _paceColor.Checked,
                 ShowFiveHour = _showFiveHour.Checked,
                 ShowWeekly = _showWeekly.Checked,
                 ShowPercentageInTrayIcon = _showPercentage.Checked,
@@ -338,6 +372,15 @@ namespace CodexUsageTray
                 StartWithWindows = _startWithWindows.Checked
             };
             RaiseSettingsChanged(next);
+        }
+
+        private void UpdateAppearanceControls()
+        {
+            var standard = _iconStyle.SelectedIndex != 1;
+            _paceColor.Enabled = standard;
+            _showPercentage.Enabled = standard;
+            _showReset.Enabled = standard;
+            _switchSeconds.Enabled = standard && _showPercentage.Checked && _showReset.Checked;
         }
 
         private void PickColor(bool background)
@@ -359,6 +402,8 @@ namespace CodexUsageTray
                 {
                     BackgroundColor = background ? ToHtml(dialog.Color) : _settings.BackgroundColor,
                     TextColor = background ? _settings.TextColor : ToHtml(dialog.Color),
+                    TrayIconStyle = _settings.TrayIconStyle,
+                    ColorByPace = _settings.ColorByPace,
                     ShowFiveHour = _settings.ShowFiveHour,
                     ShowWeekly = _settings.ShowWeekly,
                     ShowPercentageInTrayIcon = _settings.ShowPercentageInTrayIcon,

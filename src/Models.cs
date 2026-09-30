@@ -4,8 +4,13 @@ namespace CodexUsageTray
 {
     internal sealed class AppSettings
     {
+        public const string StandardIconStyle = "standard";
+        public const string BarIconStyle = "bar";
+
         public string BackgroundColor { get; set; }
         public string TextColor { get; set; }
+        public string TrayIconStyle { get; set; }
+        public bool ColorByPace { get; set; }
         public bool ShowFiveHour { get; set; }
         public bool ShowWeekly { get; set; }
         public bool ShowPercentageInTrayIcon { get; set; }
@@ -20,6 +25,8 @@ namespace CodexUsageTray
             {
                 BackgroundColor = "#111827",
                 TextColor = "#F9FAFB",
+                TrayIconStyle = StandardIconStyle,
+                ColorByPace = false,
                 ShowFiveHour = true,
                 ShowWeekly = true,
                 ShowPercentageInTrayIcon = true,

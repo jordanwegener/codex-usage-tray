@@ -54,6 +54,9 @@ namespace CodexUsageTray
             if (value == null) return defaults;
             value.BackgroundColor = IsColor(value.BackgroundColor) ? value.BackgroundColor : defaults.BackgroundColor;
             value.TextColor = IsColor(value.TextColor) ? value.TextColor : defaults.TextColor;
+            if (value.TrayIconStyle != AppSettings.StandardIconStyle &&
+                value.TrayIconStyle != AppSettings.BarIconStyle)
+                value.TrayIconStyle = defaults.TrayIconStyle;
             if (value.IconCycleSeconds < 2 || value.IconCycleSeconds > 60)
                 value.IconCycleSeconds = defaults.IconCycleSeconds;
             if (!value.ShowFiveHour && !value.ShowWeekly) value.ShowFiveHour = true;

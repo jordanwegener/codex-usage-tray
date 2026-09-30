@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -83,6 +84,7 @@ namespace CodexUsageTray
                     {
                         UpdateTrayTooltip();
                         _popup.RefreshCountdown();
+                        UpdateTrayIcons();
                     }, null);
                 },
                 null,
@@ -93,7 +95,8 @@ namespace CodexUsageTray
                 {
                     _ui.Post(delegate
                     {
-                        if (_exiting || !_settings.ShowPercentageInTrayIcon || !_settings.ShowResetInTrayIcon)
+                        if (_exiting || _settings.TrayIconStyle != AppSettings.StandardIconStyle ||
+                            !_settings.ShowPercentageInTrayIcon || !_settings.ShowResetInTrayIcon)
                             return;
                         _showResetPhase = !_showResetPhase;
                         UpdateTrayIcons();
@@ -278,8 +281,16 @@ namespace CodexUsageTray
 
         private static string FormatTooltipMeter(string name, UsageMeter meter)
         {
-            var text = name + ": " + Math.Round(meter.RemainingPercent) + "%";
-            if (meter.ResetsAt.HasValue) text += " • reset in " + FormatCountdown(meter.ResetsAt.Value);
+            var text = name + " " + Math.Round(meter.RemainingPercent) + "%";
+            if (meter.ResetsAt.HasValue) text += " " + FormatCountdown(meter.ResetsAt.Value);
+            var paceGap = GetPaceGapPoints(meter);
+            if (paceGap.HasValue)
+            {
+                var points = (int)Math.Round(Math.Abs(paceGap.Value));
+                text += points < 2
+                    ? " on pace"
+                    : (paceGap.Value > 0 ? " behind " : " ahead ") + points + "pp";
+            }
             return text;
         }
 
@@ -292,6 +303,20 @@ namespace CodexUsageTray
             if (remaining.Hours > 0) return remaining.Hours + "h " + remaining.Minutes + "m";
             if (remaining.Minutes > 0) return remaining.Minutes + "m";
             return "<1m";
+        }
+
+        private static double? GetTimeRemainingPercent(UsageMeter meter)
+        {
+            if (meter == null || !meter.ResetsAt.HasValue || meter.DurationMinutes <= 0) return null;
+            var remaining = DateTimeOffset.FromUnixTimeSeconds(meter.ResetsAt.Value) - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) return null;
+            return Math.Max(0, Math.Min(100, remaining.TotalMinutes / meter.DurationMinutes * 100.0));
+        }
+
+        private static double? GetPaceGapPoints(UsageMeter meter)
+        {
+            var timeRemaining = GetTimeRemainingPercent(meter);
+            return timeRemaining.HasValue ? timeRemaining.Value - meter.RemainingPercent : (double?)null;
         }
 
         private static string HumanizeError(Exception exception)
@@ -325,36 +350,30 @@ namespace CodexUsageTray
                 ReplaceIcon(
                     _tray,
                     ref _icon,
-                    GetIconText(_state.FiveHour, _state.FiveHour),
+                    _state.FiveHour,
                     background,
                     foreground);
                 ReplaceIcon(
                     _secondaryTray,
                     ref _secondaryIcon,
-                    GetIconText(_state.Weekly, _state.Weekly),
+                    _state.Weekly,
                     background,
                     foreground);
                 return;
             }
 
             DisposeSecondaryTray();
-            UsageMeter percentageMeter = null;
-            if (_settings.ShowFiveHour && _state.FiveHour != null) percentageMeter = _state.FiveHour;
+            UsageMeter selectedMeter = null;
+            if (_settings.ShowFiveHour && _state.FiveHour != null) selectedMeter = _state.FiveHour;
             if (_settings.ShowWeekly && _state.Weekly != null &&
-                (percentageMeter == null || _state.Weekly.RemainingPercent < percentageMeter.RemainingPercent))
+                (selectedMeter == null || _state.Weekly.RemainingPercent < selectedMeter.RemainingPercent))
             {
-                percentageMeter = _state.Weekly;
+                selectedMeter = _state.Weekly;
             }
-
-            UsageMeter resetMeter = null;
-            if (_settings.ShowWeekly && _state.Weekly != null && _state.Weekly.ResetsAt.HasValue)
-                resetMeter = _state.Weekly;
-            else if (_settings.ShowFiveHour && _state.FiveHour != null && _state.FiveHour.ResetsAt.HasValue)
-                resetMeter = _state.FiveHour;
             ReplaceIcon(
                 _tray,
                 ref _icon,
-                GetIconText(percentageMeter, resetMeter),
+                selectedMeter,
                 background,
                 foreground);
         }
@@ -368,13 +387,13 @@ namespace CodexUsageTray
                 _state.Weekly != null;
         }
 
-        private string GetIconText(UsageMeter percentageMeter, UsageMeter resetMeter)
+        private string GetIconText(UsageMeter meter)
         {
-            var canShowPercentage = _settings.ShowPercentageInTrayIcon && percentageMeter != null;
-            var canShowReset = _settings.ShowResetInTrayIcon && resetMeter != null && resetMeter.ResetsAt.HasValue;
+            var canShowPercentage = _settings.ShowPercentageInTrayIcon && meter != null;
+            var canShowReset = _settings.ShowResetInTrayIcon && meter != null && meter.ResetsAt.HasValue;
             if (canShowReset && (!canShowPercentage || _showResetPhase))
-                return FormatIconCountdown(resetMeter.ResetsAt.Value);
-            if (canShowPercentage) return Math.Round(percentageMeter.RemainingPercent).ToString("0");
+                return FormatIconCountdown(meter.ResetsAt.Value);
+            if (canShowPercentage) return Math.Round(meter.RemainingPercent).ToString("0");
             return "C";
         }
 
@@ -413,18 +432,48 @@ namespace CodexUsageTray
             }
         }
 
-        private static void ReplaceIcon(
+        private void ReplaceIcon(
             NotifyIcon tray,
             ref Icon current,
-            string text,
+            UsageMeter meter,
             Color background,
             Color foreground)
         {
-            var next = CreateIcon(text, background, foreground);
+            Icon next;
+            if (_settings.TrayIconStyle == AppSettings.BarIconStyle && meter != null)
+            {
+                next = CreateBarIcon(meter, background, foreground);
+            }
+            else
+            {
+                var paceGap = _settings.ColorByPace ? GetPaceGapPoints(meter) : null;
+                var circleBackground = paceGap.HasValue ? GetPaceColor(paceGap.Value) : background;
+                next = CreateIcon(GetIconText(meter), circleBackground, foreground);
+            }
             var previous = current;
             current = next;
             tray.Icon = next;
             if (previous != null) previous.Dispose();
+        }
+
+        private static Color GetPaceColor(double paceGap)
+        {
+            var even = Color.FromArgb(71, 85, 105);
+            var ahead = Color.FromArgb(4, 120, 87);
+            var warning = Color.FromArgb(180, 83, 9);
+            var behind = Color.FromArgb(185, 28, 28);
+            if (paceGap < 0) return MixColor(even, ahead, -paceGap / 30.0);
+            if (paceGap < 15) return MixColor(even, warning, paceGap / 15.0);
+            return MixColor(warning, behind, (paceGap - 15) / 25.0);
+        }
+
+        private static Color MixColor(Color first, Color second, double amount)
+        {
+            amount = Math.Max(0, Math.Min(1, amount));
+            return Color.FromArgb(
+                (int)Math.Round(first.R + (second.R - first.R) * amount),
+                (int)Math.Round(first.G + (second.G - first.G) * amount),
+                (int)Math.Round(first.B + (second.B - first.B) * amount));
         }
 
         private static string FormatIconCountdown(long resetTimestamp)
@@ -439,6 +488,78 @@ namespace CodexUsageTray
             return minutes + "m";
         }
 
+        private static Icon CreateBarIcon(UsageMeter meter, Color background, Color foreground)
+        {
+            using (var bitmap = new Bitmap(32, 32))
+            using (var graphics = Graphics.FromImage(bitmap))
+            using (var frame = RoundedRectanglePath(new Rectangle(1, 1, 30, 30), 6))
+            using (var backgroundBrush = new SolidBrush(background))
+            using (var borderPen = new Pen(Color.FromArgb(110, foreground)))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                graphics.FillPath(backgroundBrush, frame);
+                graphics.DrawPath(borderPen, frame);
+
+                var resetText = meter.ResetsAt.HasValue ? FormatIconCountdown(meter.ResetsAt.Value) : "?";
+                var fontSize = resetText.Length >= 4 ? 13F : (resetText.Length == 3 ? 15F : 18F);
+                using (var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
+                {
+                    TextRenderer.DrawText(
+                        graphics,
+                        resetText,
+                        font,
+                        new Rectangle(1, 1, 30, 21),
+                        foreground,
+                        TextFormatFlags.HorizontalCenter |
+                        TextFormatFlags.VerticalCenter |
+                        TextFormatFlags.NoPadding |
+                        TextFormatFlags.SingleLine);
+                }
+
+                var track = new Rectangle(3, 23, 26, 6);
+                using (var trackPath = RoundedRectanglePath(track, 3))
+                using (var trackBrush = new SolidBrush(MixColor(background, foreground, 0.22)))
+                using (var fillBrush = new SolidBrush(Color.FromArgb(16, 185, 129)))
+                {
+                    graphics.FillPath(trackBrush, trackPath);
+                    var quotaPercent = Math.Max(0, Math.Min(100, meter.RemainingPercent));
+                    var fillWidth = (int)Math.Round(track.Width * quotaPercent / 100.0);
+                    if (fillWidth > 0)
+                    {
+                        graphics.SetClip(trackPath);
+                        graphics.FillRectangle(fillBrush, new Rectangle(track.X, track.Y, fillWidth, track.Height));
+                        graphics.ResetClip();
+                    }
+                }
+
+                var timePercent = GetTimeRemainingPercent(meter);
+                if (timePercent.HasValue)
+                {
+                    var markerX = track.X + (int)Math.Round((track.Width - 1) * timePercent.Value / 100.0);
+                    using (var shadow = new Pen(Color.FromArgb(180, 0, 0, 0), 3))
+                    using (var marker = new Pen(foreground, 1))
+                    {
+                        graphics.DrawLine(shadow, markerX, 22, markerX, 30);
+                        graphics.DrawLine(marker, markerX, 22, markerX, 30);
+                    }
+                }
+                return IconFromBitmap(bitmap);
+            }
+        }
+
+        private static GraphicsPath RoundedRectanglePath(Rectangle rectangle, int radius)
+        {
+            var path = new GraphicsPath();
+            var diameter = radius * 2;
+            path.AddArc(rectangle.X, rectangle.Y, diameter, diameter, 180, 90);
+            path.AddArc(rectangle.Right - diameter, rectangle.Y, diameter, diameter, 270, 90);
+            path.AddArc(rectangle.Right - diameter, rectangle.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(rectangle.X, rectangle.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
         private static Icon CreateIcon(string text, Color background, Color foreground)
         {
             using (var bitmap = new Bitmap(32, 32))
@@ -446,7 +567,7 @@ namespace CodexUsageTray
             using (var brush = new SolidBrush(background))
             {
                 graphics.Clear(Color.Transparent);
-                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 graphics.FillEllipse(brush, new Rectangle(1, 1, 30, 30));
                 var fontSize = text.Length >= 3 ? 16F : (text.Length == 2 ? 19F : 22F);
                 using (var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
@@ -462,15 +583,20 @@ namespace CodexUsageTray
                         TextFormatFlags.NoPadding |
                         TextFormatFlags.SingleLine);
                 }
-                var handle = bitmap.GetHicon();
-                try
-                {
-                    return (Icon)Icon.FromHandle(handle).Clone();
-                }
-                finally
-                {
-                    DestroyIcon(handle);
-                }
+                return IconFromBitmap(bitmap);
+            }
+        }
+
+        private static Icon IconFromBitmap(Bitmap bitmap)
+        {
+            var handle = bitmap.GetHicon();
+            try
+            {
+                return (Icon)Icon.FromHandle(handle).Clone();
+            }
+            finally
+            {
+                DestroyIcon(handle);
             }
         }
 
